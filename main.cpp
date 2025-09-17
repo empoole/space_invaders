@@ -5,6 +5,29 @@
 
 #define GAME_MAX_BULLETS 128
 
+#define GL_ERROR_CASE(glerror)\
+	case glerror: snprintf(error, sizeof(error), "%s", #glerror)
+
+inline void gl_debug(const char *file, int line) {
+	GLenum err;
+	while((err = glGetError()) != GL_NO_ERROR) {
+		char error[128];
+		
+		switch(err) {
+			GL_ERROR_CASE(GL_INVALID_ENUM); break;
+			GL_ERROR_CASE(GL_INVALID_VALUE); break;
+			GL_ERROR_CASE(GL_INVALID_OPERATION); break;
+			GL_ERROR_CASE(GL_INVALID_FRAMEBUFFER_OPERATION); break;
+			GL_ERROR_CASE(GL_OUT_OF_MEMORY); break;
+			default: snprintf(error, sizeof(error), "%s", "UNKNOWN ERROR"); break;
+		}
+
+		fprintf(stderr, "%s - %s: %d\n", error, file, line);
+	}
+}
+
+#undef GL_ERROR_CASE
+
 bool is_game_running = false;
 int move_dir = 0;
 bool is_fire_button_pressed = 0;
@@ -180,17 +203,22 @@ int main() {
 	glGetIntegerv(GL_MAJOR_VERSION, &glVersion[0]);
 	glGetIntegerv(GL_MINOR_VERSION, &glVersion[1]);
 
-	printf("Using OpenGL: %d.%d\n", glVersion[0], glVersion[1]);
+    gl_debug(__FILE__, __LINE__);
+
+    printf("Using OpenGL: %d.%d\n", glVersion[0], glVersion[1]);
+    printf("Renderer used: %s\n", glGetString(GL_RENDERER));
+    printf("Shading Language: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
 	glfwSwapInterval(1);
 
 	// Create graphics buffer
-	uint32_t clear_color = rgb_to_uint32(0, 128, 0);
+	glClearColor(1.0, 0.0, 0.0, 1.0);
 	Buffer buffer;
-	buffer.width = buffer_width;
+	buffer.width  = buffer_width;
 	buffer.height = buffer_height;
-	buffer.data = new uint32_t[buffer.width * buffer.height];
-	buffer_clear(&buffer, clear_color);
+	buffer.data   = new uint32_t[buffer.width * buffer.height];
+
+	buffer_clear(&buffer, 0);
 
 	// Create texture for presenting buffer to OpenGL
 	GLuint buffer_texture;
@@ -404,7 +432,7 @@ int main() {
 		0,1,0,0,1,0,0,0,1,0,0,1,0  // .@..@...@..@.
 	};
 
-	SpriteAnimation* alien_animation = new SpriteAnimation;
+	SpriteAnimation alien_animation[3];
 
 	for(size_t i = 0; i < 3; ++i) {
 		alien_animation[i].loop = true;
@@ -420,6 +448,7 @@ int main() {
 	Game game;
 	game.width = buffer_width;
 	game.height = buffer_height;
+	game.num_bullets = 0;
 	game.num_aliens = 55;
 	game.aliens = new Alien[game.num_aliens];
 
@@ -429,8 +458,13 @@ int main() {
 
 	for (size_t yi = 0; yi < 5; yi++) {
 		for (size_t xi = 0; xi < 11; ++xi) {
-			game.aliens[yi * 11 + xi].x = 16 * xi + 20;
-			game.aliens[yi * 11 + xi].y = 17 * yi + 128;
+			Alien& alien = game.aliens[yi * 11 + xi];
+			alien.type = (5 - yi) / 2 + 1;
+
+			const Sprite& sprite = alien_sprites[2 * (alien.type - 1)];
+
+			alien.x = 16 * xi + 20 + (alien_death_sprite.width - sprite.width)/2;
+			alien.y = 17 * yi + 128;
 		}
 	}
 
@@ -439,7 +473,9 @@ int main() {
 		death_counters[i] = 10;
 	}
 
-	glClearColor(1.0, 0.0, 0.0, 1.0);
+	uint32_t clear_color = rgb_to_uint32(0, 128, 0);
+
+	is_game_running = true;
 
 	while (!glfwWindowShouldClose(window) && is_game_running) {
 		buffer_clear(&buffer, clear_color);
@@ -469,12 +505,11 @@ int main() {
 		// Draw player sprite
 		buffer_draw_sprite(&buffer, player_sprite, game.player.x, game.player.y, rgb_to_uint32(128, 0, 0));
 
-		++alien_animation->time;
-		if(alien_animation->time == alien_animation->num_frames * alien_animation->frame_duration) {
-			if(alien_animation->loop) alien_animation-> time = 0;
-			else {
-				delete alien_animation;
-				alien_animation = nullptr;
+		// Animate Aliens
+		for(size_t i = 0; i < 3; ++i) {
+			++alien_animation[i].time;
+			if(alien_animation[i].time == alien_animation[i].num_frames * alien_animation[i].frame_duration) {
+				alien_animation[i].time = 0;
 			}
 		}
 
